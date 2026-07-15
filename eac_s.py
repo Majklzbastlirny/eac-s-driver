@@ -192,6 +192,7 @@ class EACS:
         self.auto_check = auto_check
         self._echo: bool | None = None      # unknown until first query
         self._unsupported: set[str] = set() # commands this firmware ignores
+        self._seen_ok: set[str] = set()     # commands that answered once
         auto = isinstance(baudrate, str)
         if auto and baudrate.lower() != "auto":
             raise ValueError(f"baudrate must be an int or 'auto', not {baudrate!r}")
@@ -485,10 +486,12 @@ class EACS:
     def output_off(self) -> None:
         """SB,S - standby (disable) the output.
 
-        CAUTION: in LOCAL mode some firmware silently ignores this (verified
-        on HE-ACS V0.72). Call remote() first - activating remote by itself
-        already applies the interface set points and standby state. Check
-        get_output() when it matters.
+        CAUTION: in LOCAL mode this does not act immediately - it is LATCHED
+        into the interface set-point state and applied when remote control
+        activates (verified on HE-ACS V0.72). The same holds for output_on()
+        and all set commands: GTR applies the whole latched interface state
+        at once, including a latched output-ON. Check get_output() when the
+        actual output state matters.
         """
         self._command("SB,S")
 
@@ -650,6 +653,9 @@ class EACS:
         Commands the firmware does not answer (e.g. MPS/MPQ on some units)
         are reported as None and skipped on subsequent calls; values the
         device cannot calculate (dashes, e.g. PF at no load) come back NaN.
+        A command that answered before is never marked unsupported - a
+        timeout then is transient (rms measurements take seconds at very
+        low output frequencies) and yields None for this call only.
         """
         result = {}
         for label, cmd in self._MEAS_TABLE:
@@ -658,8 +664,10 @@ class EACS:
                 continue
             try:
                 result[label] = self._query_value(cmd)
+                self._seen_ok.add(cmd)
             except EACSTimeout:
-                self._unsupported.add(cmd)
+                if cmd not in self._seen_ok:
+                    self._unsupported.add(cmd)
                 result[label] = None
         return result
 

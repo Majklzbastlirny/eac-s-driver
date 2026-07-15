@@ -121,15 +121,19 @@ WATCH_FIELDS = {
 WATCH_DEFAULT = ("u", "udc", "i", "p", "f")
 
 
-def watch_line(psu: EACS, keys=WATCH_DEFAULT,
-               unsupported: set | None = None) -> tuple[tuple, str]:
+def watch_line(psu: EACS, keys=WATCH_DEFAULT, unsupported: set | None = None,
+               seen_ok: set | None = None) -> tuple[tuple, str]:
     """One state sample -> (change-key, display line).
 
     Values the device cannot calculate (dashes) show as '-', commands this
-    firmware lacks (learned via `unsupported`) show as 'n/a'.
+    firmware lacks (learned via `unsupported`) show as 'n/a'. A command that
+    answered before is never marked unsupported - a timeout then is
+    transient (rms readings take seconds at very low output frequencies).
     """
     if unsupported is None:
         unsupported = set()
+    if seen_ok is None:
+        seen_ok = set()
     st = psu.status()
     flags = []
     if st.current_limiting:
@@ -152,9 +156,13 @@ def watch_line(psu: EACS, keys=WATCH_DEFAULT,
             continue
         try:
             val = psu._query_value(cmd)
+            seen_ok.add(cmd)
         except EACSTimeout:
-            unsupported.add(cmd)
-            parts.append("n/a".rjust(width))
+            if cmd in seen_ok:              # transient (slow measurement)
+                parts.append("?".rjust(width))
+            else:
+                unsupported.add(cmd)
+                parts.append("n/a".rjust(width))
             continue
         except EACSError:                   # garbled reply: transient, retry next tick
             parts.append("?".rjust(width))
@@ -176,10 +184,10 @@ def watch(psu: EACS, interval: float, keys=None) -> None:
               f"{','.join(WATCH_FIELDS)} (or 'all')")
         return
     print("watching device state - Ctrl+C stops")
-    last_key, width, unsupported = None, 0, set()
+    last_key, width, unsupported, seen_ok = None, 0, set(), set()
     try:
         while True:
-            key, line = watch_line(psu, keys, unsupported)
+            key, line = watch_line(psu, keys, unsupported, seen_ok)
             if last_key is not None and key != last_key:
                 sys.stdout.write("\n")          # keep the old state as history
             last_key = key
@@ -238,8 +246,16 @@ def execute(psu: EACS, tokens: list[str]) -> bool:
     elif cmd == "ver":
         print(psu.version())
     elif cmd == "remote":
-        psu.remote(int(args[0]) if args else None)
-        print("remote control active" if not args else f"GTR,{args[0]} sent")
+        if args:
+            psu.remote(int(args[0]))
+            print(f"GTR,{args[0]} sent")
+        else:
+            # Commands sent during LOCAL latch into the interface state and
+            # GTR applies them all at once - latch standby first so remote
+            # control always starts with the output off.
+            psu.output_off()
+            psu.remote()
+            print("remote control active (output starts in standby)")
     elif cmd == "local":
         psu.local()
         print("front panel control active")
@@ -286,8 +302,8 @@ def execute(psu: EACS, tokens: list[str]) -> bool:
         except EACSError:
             still_on = False
         if still_on:
-            print("WARNING: output is STILL ON - the unit is in LOCAL mode and")
-            print("ignores SB,S. Type 'remote' (then 'off'), or use the panel.")
+            print("WARNING: output is STILL ON - the unit is in LOCAL mode; the")
+            print("panel controls it. Type 'remote' (enters standby) or use the panel.")
         else:
             print("output disabled (standby)")
     elif cmd == "pulse":

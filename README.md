@@ -170,10 +170,16 @@ psu.dip_start()                # ... triggered at next reference zero cross
 * `GTL` (back to local) **restores the front-panel settings** — e.g. the
   waveform selected by the panel buttons replaces whatever was set remotely.
   Remote selections only persist while in remote mode.
-* **Set commands are ignored in LOCAL mode** — including `SB,S` (output off)!
-  Send `GTR` first; note that activating remote immediately applies the
-  interface set points (so if those are 0 V/standby, `GTR` alone kills the
-  output). The CLI's `off` verifies and warns if the output stayed on.
+* **Commands sent in LOCAL mode do not act — they LATCH.** They are stored
+  in the interface's set-point state and `GTR` applies them all at once:
+  voltage, frequency, *and a latched output-ON* (`SB,R`). Clicking "remote"
+  can therefore energize the output instantly if an ON command was sent
+  earlier while the unit was local. Mitigations in this software: the GUI
+  refuses output-ON in LOCAL mode, and both GUI and CLI latch `SB,S` right
+  before `GTR`, so taking remote control always starts in standby.
+* **rms measurements take seconds at very low output frequencies** (e.g.
+  1 Hz) — the software treats such timeouts as transient, not as a missing
+  command or dead device.
 * Set-point queries (`UAC`, `IA`, `FA` without parameter) return the
   **interface's own set points**, not the front-panel knob positions (the
   unit keeps separate set points per control source). The panel state is

@@ -35,6 +35,7 @@ from eac_cli import WATCH_FIELDS
 psu: EACS | None = None
 lock = threading.Lock()
 unsupported: set[str] = set()
+seen_ok: set[str] = set()      # commands that answered at least once
 
 
 def recovering(fn):
@@ -67,8 +68,13 @@ def read_state() -> dict:
                 continue
             try:
                 val = psu._query_value(cmd)
+                seen_ok.add(cmd)
             except EACSTimeout:
-                unsupported.add(cmd)
+                # never answered -> firmware lacks it; answered before ->
+                # transient (e.g. rms readings take seconds at very low
+                # output frequency), blank this tick only
+                if cmd not in seen_ok:
+                    unsupported.add(cmd)
                 val = None
             except EACSError:
                 val = None                    # garbled reply: blank this tick
@@ -150,6 +156,13 @@ def _settle(pred, timeout: float = 1.2):
 def apply_output(on: bool) -> dict:
     with lock:
         if on:
+            # In LOCAL mode SB,R would not act now but LATCH into the
+            # interface state and fire the moment remote is activated.
+            # Refuse instead of arming that trap.
+            if not psu.status().remote:
+                raise ValueError(
+                    "unit is in LOCAL mode - click Remote first, then enable "
+                    "the output")
             psu.output_on()
         else:
             psu.output_off()
@@ -160,6 +173,11 @@ def apply_output(on: bool) -> dict:
 def apply_mode(remote: bool) -> dict:
     with lock:
         if remote:
+            # Commands sent during LOCAL latch into the interface state and
+            # GTR applies them all at once - including a latched output-ON.
+            # Latch standby first so remote control always starts with the
+            # output off.
+            psu.output_off()
             psu.remote()
         else:
             psu.local()
@@ -431,9 +449,11 @@ function render(s) {
   $("m-wave").textContent = s.wave.toLowerCase();
   document.querySelectorAll("[data-wave]").forEach(b =>
     b.classList.toggle("sel", b.dataset.wave === s.wave));
+  $("btn-on").disabled = !s.remote;
   if (!s.remote)
-    banner("Unit is in LOCAL mode - set commands are ignored by the device. " +
-           "Click Remote to take control.");
+    banner("Unit is in LOCAL mode. Set points you apply now are stored and " +
+           "take effect when you click Remote (the output always starts in " +
+           "standby). Output ON is disabled until Remote.");
   else banner(null);
 }
 
@@ -460,9 +480,7 @@ async function refreshSetpoints() {
 
 async function doSet(field, value) {
   try {
-    const r = await api("/api/set", { field, value });
-    if (!r.remote)
-      banner("Sent, but the unit is in LOCAL mode - it ignored the command.");
+    await api("/api/set", { field, value });
     await refreshSetpoints();
   } catch (e) { banner("Set failed: " + e.message, true); }
 }
@@ -533,7 +551,9 @@ def main() -> None:
     global psu
     baud = args.baud if str(args.baud).lower() == "auto" else int(args.baud)
     try:
-        psu = EACS(args.serial_port, baudrate=baud)
+        # generous timeout: rms measurements take seconds at very low
+        # output frequencies (e.g. 1 Hz), which is not a dead device
+        psu = EACS(args.serial_port, baudrate=baud, timeout=2.5)
     except Exception as exc:
         sys.exit(f"cannot open {args.serial_port}: {exc}")
     print(f"device: {psu.identify()} at {psu.active_baud} baud")
