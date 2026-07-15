@@ -210,6 +210,7 @@ class EACS:
         self._flush_device_input()
         #: baud rate the device was found at ("auto" mode only)
         self.detected_baud: int | None = None
+        self._target_baud = target_baud if auto else None
         if auto:
             self.detected_baud = self._detect_baud()
             if target_baud and target_baud != self.detected_baud:
@@ -320,7 +321,7 @@ class EACS:
         finally:
             self.timeout = saved
 
-    def _detect_baud(self) -> int:
+    def _detect_baud(self, close_on_fail: bool = True) -> int:
         for baud in self.BAUD_CANDIDATES:
             self._ser.baudrate = baud
             self._ser.reset_input_buffer()
@@ -328,10 +329,25 @@ class EACS:
             if self._probe():
                 return baud
         port = self._ser.port
-        self.close()
+        if close_on_fail:
+            self.close()
         raise EACSTimeout(
             f"no device answering on {port} at any of {self.BAUD_CANDIDATES} baud "
             "(check cable/port; a null-modem cable is required)")
+
+    def redetect(self) -> int:
+        """Re-run baud detection on the open port and return the active rate.
+
+        For long-running applications: after the device is power cycled it
+        falls back to its EEPROM baud rate and the session goes silent -
+        call this to find it again (and re-upgrade to the target rate in
+        "auto" mode). Raises EACSTimeout if the device stays silent; the
+        port remains open so the call can be retried.
+        """
+        self.detected_baud = self._detect_baud(close_on_fail=False)
+        if self._target_baud and self._target_baud != self.detected_baud:
+            self._upgrade_baud(self._target_baud)
+        return self.active_baud
 
     def _upgrade_baud(self, target: int) -> None:
         """Switch device + local port to `target` for this session (no SS).

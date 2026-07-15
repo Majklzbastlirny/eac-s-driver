@@ -12,6 +12,7 @@ covers the whole series.
 |-------------------|------------------------------------------------------------|
 | `eac_s.py`        | Driver library (class `EACS`) — import this in your scripts |
 | `eac_cli.py`      | Interactive control console + one-shot command-line tool    |
+| `eac_gui.py`      | Browser GUI — built-in web server, works on any OS, no extra deps |
 | `test_offline.py` | Regression suite against a simulated device — no hardware needed (`python test_offline.py`) |
 | `ETS_Manual_EAC-S_EN.pdf` | Manufacturer's manual (ET System electronic GmbH) — source of the protocol |
 
@@ -83,6 +84,27 @@ python eac_cli.py COM3 meas
 python eac_cli.py COM3 off
 python eac_cli.py COM3 raw STATUS
 ```
+
+## Quick start — browser GUI
+
+```
+python eac_gui.py COM3                  # opens http://127.0.0.1:8432
+python eac_gui.py COM3 --host 0.0.0.0   # reachable from LAN (phone/tablet)
+```
+
+A single-page control panel served by a built-in web server (Python stdlib
+only — no extra dependencies, works on Windows/Linux/macOS and in any
+browser, including phones). It shows live readouts (U, Udc, I, P, PF, f,
+peaks, crest factors), mode/output/waveform state with warning flags, and
+lets you set voltage/current/frequency/phase/waveform, toggle remote/local
+and switch the output (with a confirmation dialog showing the set points).
+
+* Any number of browsers can watch; the server owns the serial port and
+  serializes all device access.
+* Survives a device power cycle: when the unit goes silent, the server
+  re-runs baud detection automatically and carries on.
+* **No authentication** — the default bind is localhost. Only use
+  `--host 0.0.0.0` on a network where everyone may control the PSU.
 
 ## Quick start — library
 
