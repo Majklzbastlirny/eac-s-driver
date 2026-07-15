@@ -296,10 +296,12 @@ input[type=number] {
   background: var(--page); border: 1px solid var(--line); border-radius: 8px;
   padding: 7px 10px; width: 110px;
 }
-.setrow { display: grid; grid-template-columns: 150px 130px auto 1fr;
+.setrow { display: grid; grid-template-columns: 150px 160px auto 1fr;
           gap: 8px; align-items: center; padding: 4px 0; }
 .setrow .cur { color: var(--ink-3); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .setrow label { font-size: 13.5px; color: var(--ink-2); }
+.inwrap { display: flex; align-items: center; gap: 6px; }
+.inwrap .unit { color: var(--ink-2); font-size: 13px; min-width: 24px; }
 #banner { display: none; border: 1.5px solid var(--warning); border-radius: 8px;
           padding: 8px 12px; margin-bottom: 12px; font-size: 13.5px; }
 #banner.error { border-color: var(--critical); }
@@ -351,19 +353,24 @@ input[type=number] {
 <div class="card" style="margin-top:12px">
   <div class="sub" style="margin-bottom:6px">SET POINTS (interface)</div>
   <div class="setrow"><label>AC voltage</label>
-    <input type="number" id="sp-uac" step="0.1" min="0"> <button data-set="uac">Apply</button>
+    <div class="inwrap"><input type="number" id="sp-uac" step="0.1" min="0"><span class="unit">V</span></div>
+    <button data-set="uac">Apply</button>
     <span class="cur" id="cur-uac"></span></div>
   <div class="setrow"><label>DC offset</label>
-    <input type="number" id="sp-udc" step="0.1"> <button data-set="udc">Apply</button>
+    <div class="inwrap"><input type="number" id="sp-udc" step="0.1"><span class="unit">V</span></div>
+    <button data-set="udc">Apply</button>
     <span class="cur" id="cur-udc"></span></div>
   <div class="setrow"><label>Current limit</label>
-    <input type="number" id="sp-ia" step="0.01" min="0"> <button data-set="ia">Apply</button>
+    <div class="inwrap"><input type="number" id="sp-ia" step="0.01" min="0"><span class="unit">A</span></div>
+    <button data-set="ia">Apply</button>
     <span class="cur" id="cur-ia"></span></div>
   <div class="setrow"><label>Frequency</label>
-    <input type="number" id="sp-fa" step="0.1" min="0"> <button data-set="fa">Apply</button>
+    <div class="inwrap"><input type="number" id="sp-fa" step="0.1" min="0"><span class="unit">Hz</span></div>
+    <button data-set="fa">Apply</button>
     <span class="cur" id="cur-fa"></span></div>
   <div class="setrow"><label>Phase</label>
-    <input type="number" id="sp-pha" step="0.1" min="0" max="359.9"> <button data-set="pha">Apply</button>
+    <div class="inwrap"><input type="number" id="sp-pha" step="0.1" min="0" max="359.9"><span class="unit">&deg;</span></div>
+    <button data-set="pha">Apply</button>
     <span class="cur" id="cur-pha"></span></div>
   <div class="row" style="margin-top:8px">
     <span class="sub" style="min-width:142px">Waveform</span>
@@ -379,6 +386,7 @@ input[type=number] {
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
+const UNITS = { uac: "V", udc: "V", ia: "A", fa: "Hz", pha: "°" };
 let limits = {}, lastSp = {};
 
 function banner(msg, error) {
@@ -443,7 +451,7 @@ async function refreshSetpoints() {
     lastSp = await api("/api/setpoints");
     for (const k of ["uac", "udc", "ia", "fa", "pha"]) {
       $("cur-" + k).textContent =
-        lastSp[k] === null ? "" : "device: " + lastSp[k];
+        lastSp[k] === null ? "" : `device: ${lastSp[k]} ${UNITS[k]}`;
       if (document.activeElement !== $("sp-" + k) && lastSp[k] !== null)
         $("sp-" + k).value = lastSp[k];
     }
@@ -459,9 +467,15 @@ async function doSet(field, value) {
   } catch (e) { banner("Set failed: " + e.message, true); }
 }
 
-document.querySelectorAll("[data-set]").forEach(b => b.onclick = () => {
-  const f = b.dataset.set, v = parseFloat($("sp-" + f).value);
-  if (!isNaN(v)) doSet(f, v);
+document.querySelectorAll("[data-set]").forEach(b => {
+  const f = b.dataset.set;
+  b.onclick = () => {
+    const v = parseFloat($("sp-" + f).value);
+    if (!isNaN(v)) doSet(f, v);
+  };
+  $("sp-" + f).addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); b.click(); }
+  });
 });
 document.querySelectorAll("[data-wave]").forEach(b => b.onclick = () =>
   doSet("wave", b.dataset.wave));
